@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "truthbrush"
-version = "0.2.5"
+version = "0.3.0"
 description = "API client for Truth Social"
 authors = ["R. Miles McCain <github@sendmiles.email>"]
 license = "Apache 2.0"
