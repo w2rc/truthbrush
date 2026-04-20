@@ -2,7 +2,7 @@
 name = "truthbrush"
 version = "0.3.0"
 description = "API client for Truth Social"
-authors = ["R. Miles McCain <github@sendmiles.email>"]
+authors = ["R. Miles McCain <github@sendmiles.email>", "David Thiel"]
 license = "Apache 2.0"
 readme = "README.md"
 
@@ -10,7 +10,7 @@ readme = "README.md"
 truthbrush = "truthbrush.cli:cli"
 
 [tool.poetry.dependencies]
-python = "^3.10"
+python = "^3.14"
 click = "^8.3.0"
 loguru = "^0.7.3"
 python-dotenv = "^1.2.0"
@@ -28,7 +28,7 @@ requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py314"
 line-length = 100
 
 [tool.ruff.lint]

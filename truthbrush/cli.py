@@ -2,70 +2,76 @@
 
 import datetime
 import json
-from datetime import date
 
 import click
 
 from .api import Api
 
-api = Api()
-
 
 @click.group()
-def cli():
+@click.option(
+    "--no-auth",
+    is_flag=True,
+    default=False,
+    help="Run without authentication. Only public endpoints will succeed.",
+)
+@click.pass_context
+def cli(ctx: click.Context, no_auth: bool):
     """This is an API client for Truth Social."""
+    ctx.ensure_object(dict)
+    ctx.obj["api"] = Api(require_auth=not no_auth)
 
 
 @cli.command()
 @click.argument("group_id")
 @click.option("--limit", default=20, help="Limit the number of items returned", type=int)
-def groupposts(group_id: str, limit: int):
+@click.pass_context
+def groupposts(ctx: click.Context, group_id: str, limit: int):
     """Pull posts from group timeline"""
-
-    print(json.dumps(api.group_posts(group_id, limit)))
+    print(json.dumps(ctx.obj["api"].group_posts(group_id, limit)))
 
 
 @cli.command()
-def trends():
+@click.pass_context
+def trends(ctx: click.Context):
     """Pull trendy Truths."""
-
-    print(json.dumps(api.trending()))
+    print(json.dumps(ctx.obj["api"].trending()))
 
 
 @cli.command()
-def tags():
+@click.pass_context
+def tags(ctx: click.Context):
     """Pull trendy tags."""
-
-    print(json.dumps(api.tags()))
+    print(json.dumps(ctx.obj["api"].tags()))
 
 
 @cli.command()
-def grouptags():
+@click.pass_context
+def grouptags(ctx: click.Context):
     """Pull group tags."""
-
-    print(json.dumps(api.group_tags()))
+    print(json.dumps(ctx.obj["api"].group_tags()))
 
 
 @cli.command()
-def grouptrends():
+@click.pass_context
+def grouptrends(ctx: click.Context):
     """Pull group trends."""
-
-    print(json.dumps(api.trending_groups()))
+    print(json.dumps(ctx.obj["api"].trending_groups()))
 
 
 @cli.command()
-def groupsuggest():
+@click.pass_context
+def groupsuggest(ctx: click.Context):
     """Pull group suggestions."""
-
-    print(json.dumps(api.suggested_groups()))
+    print(json.dumps(ctx.obj["api"].suggested_groups()))
 
 
 @cli.command()
 @click.argument("handle")
-def user(handle: str):
+@click.pass_context
+def user(ctx: click.Context, handle: str):
     """Pull a user's metadata."""
-
-    print(json.dumps(api.lookup(handle)))
+    print(json.dumps(ctx.obj["api"].lookup(handle)))
 
 
 @cli.command()
@@ -83,27 +89,35 @@ def user(handle: str):
 @click.option(
     "--end-date", default=None, help="End date for search results (e.g. 2026-03-01)", type=str
 )
-def search(searchtype: str, query: str, limit: int, resolve: bool, start_date: str, end_date: str):
+@click.pass_context
+def search(
+    ctx: click.Context,
+    searchtype: str,
+    query: str,
+    limit: int,
+    resolve: bool,
+    start_date: str,
+    end_date: str,
+):
     """Search for users, statuses, groups, or hashtags."""
-
-    for page in api.search(
+    for page in ctx.obj["api"].search(
         searchtype, query, limit, resolve, start_date=start_date, end_date=end_date
     ):
         print(json.dumps(page[searchtype]))
 
 
 @cli.command()
-def suggestions():
+@click.pass_context
+def suggestions(ctx: click.Context):
     """Pull the list of suggested users."""
-
-    print(json.dumps(api.suggested()))
+    print(json.dumps(ctx.obj["api"].suggested()))
 
 
 @cli.command()
-def ads():
+@click.pass_context
+def ads(ctx: click.Context):
     """Pull ads."""
-
-    print(json.dumps(api.ads()))
+    print(json.dumps(ctx.obj["api"].ads()))
 
 
 # @cli.command()
@@ -152,19 +166,20 @@ def ads():
     type=datetime.datetime.fromisoformat,
 )
 @click.option("--pinned/--all", default=False, help="Only pull pinned posts (defaults to all)")
+@click.pass_context
 def statuses(
+    ctx: click.Context,
     username: str,
     replies: bool = False,
-    created_after: date = None,
+    created_after: datetime.datetime | None = None,
     pinned: bool = False,
 ):
     """Pull a user's statuses"""
-
     # Assume UTC if no timezone is specified
-    if created_after and created_after.tzinfo is None:
-        created_after = created_after.replace(tzinfo=datetime.timezone.utc)
+    if created_after is not None and created_after.tzinfo is None:
+        created_after = created_after.replace(tzinfo=datetime.UTC)
 
-    for page in api.pull_statuses(
+    for page in ctx.obj["api"].pull_statuses(
         username, created_after=created_after, replies=replies, pinned=pinned
     ):
         print(json.dumps(page))
@@ -174,9 +189,10 @@ def statuses(
 @click.argument("post")
 @click.option("--includeall", is_flag=True, help="return all comments on post.")
 @click.argument("top_num")
-def likes(post: str, includeall: bool, top_num: int):
+@click.pass_context
+def likes(ctx: click.Context, post: str, includeall: bool, top_num: int):
     """Pull the top_num most recent users who liked the post."""
-    for page in api.user_likes(post, includeall, top_num):
+    for page in ctx.obj["api"].user_likes(post, includeall, top_num):
         print(json.dumps(page))
 
 
@@ -185,7 +201,8 @@ def likes(post: str, includeall: bool, top_num: int):
 @click.option("--includeall", is_flag=True, help="return all comments on post. Overrides top_num.")
 @click.option("--onlyfirst", is_flag=True, help="return only direct replies to specified post")
 @click.argument("top_num")
-def comments(post: str, includeall: bool, onlyfirst: bool, top_num: int = 40):
+@click.pass_context
+def comments(ctx: click.Context, post: str, includeall: bool, onlyfirst: bool, top_num: int = 40):
     """Pull the top_num comments on a post (defaults to all users, including replies)."""
-    for page in api.pull_comments(post, includeall, onlyfirst, top_num):
+    for page in ctx.obj["api"].pull_comments(post, includeall, onlyfirst, top_num):
         print(page)

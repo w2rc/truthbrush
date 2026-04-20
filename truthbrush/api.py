@@ -2,9 +2,9 @@ import json
 import logging
 import os
 from collections.abc import Iterator
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from time import sleep
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import curl_cffi
 from curl_cffi import requests
@@ -14,12 +14,9 @@ from loguru import logger
 
 load_dotenv()  # take environment variables from .env.
 
+_DEBUG_ENV = os.getenv("DEBUG") or ""
 logging.basicConfig(
-    level=(
-        logging.DEBUG
-        if os.getenv("DEBUG") and os.getenv("DEBUG").lower() != "false"
-        else logging.INFO
-    )
+    level=logging.DEBUG if _DEBUG_ENV.lower() not in ("", "false") else logging.INFO
 )
 
 BASE_URL = "https://truthsocial.com"
@@ -55,7 +52,7 @@ class CFBlockException(LoginErrorException):
     pass
 
 
-def date_to_bound(dt_input: "str | datetime", bound: Literal["start", "end"]) -> int:
+def date_to_bound(dt_input: str | datetime, bound: Literal["start", "end"]) -> int:
     if isinstance(dt_input, str):
         dt_input = datetime.fromisoformat(dt_input)
         if dt_input.hour or dt_input.minute or dt_input.second or dt_input.microsecond:
@@ -64,7 +61,7 @@ def date_to_bound(dt_input: "str | datetime", bound: Literal["start", "end"]) ->
             )
 
     if dt_input.tzinfo is None:
-        dt_input = dt_input.replace(tzinfo=timezone.utc)
+        dt_input = dt_input.replace(tzinfo=UTC)
 
     if bound == "start":
         dt = dt_input.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -79,20 +76,25 @@ def date_to_bound(dt_input: "str | datetime", bound: Literal["start", "end"]) ->
 class Api:
     def __init__(
         self,
-        username=TRUTHSOCIAL_USERNAME,
-        password=TRUTHSOCIAL_PASSWORD,
-        token=TRUTHSOCIAL_TOKEN,
+        username: str | None = TRUTHSOCIAL_USERNAME,
+        password: str | None = TRUTHSOCIAL_PASSWORD,
+        token: str | None = TRUTHSOCIAL_TOKEN,
+        *,
+        require_auth: bool = True,
     ):
         self.ratelimit_max = 300
-        self.ratelimit_remaining = None
-        self.ratelimit_reset = None
+        self.ratelimit_remaining: int | None = None
+        self.ratelimit_reset: datetime | None = None
         self.__username = username
         self.__password = password
         self.auth_id = token
+        self.require_auth = require_auth
 
     def __check_login(self):
         """Runs before any login-walled function to check for login credentials and generates an auth ID token"""
         if self.auth_id is None:
+            if not self.require_auth:
+                return
             if self.__username is None:
                 raise LoginErrorException("Username is missing.")
             if self.__password is None:
@@ -113,11 +115,13 @@ class Api:
             self.ratelimit_reset = date_parse.parse(resp.headers.get("x-ratelimit-reset"))
 
         if (
-            self.ratelimit_remaining is not None and self.ratelimit_remaining <= 50
+            self.ratelimit_remaining is not None
+            and self.ratelimit_remaining <= 50
+            and self.ratelimit_reset is not None
         ):  # We do 50 to be safe; their tracking is a bit stochastic... it can jump down quickly
-            now = datetime.utcnow().replace(tzinfo=timezone.utc)
+            now = datetime.now(UTC)
             time_to_sleep = (
-                self.ratelimit_reset.replace(tzinfo=timezone.utc) - now
+                self.ratelimit_reset.replace(tzinfo=UTC) - now
             ).total_seconds()
             logger.warning(f"Approaching rate limit; sleeping for {time_to_sleep} seconds...")
             if time_to_sleep > 0:
@@ -125,17 +129,17 @@ class Api:
             else:
                 sleep(10)
 
-    def _get(self, url: str, params: dict = None) -> Any:
+    def _get(self, url: str, params: dict | None = None) -> Any:
+        headers = {"User-Agent": USER_AGENT}
+        if self.auth_id is not None:
+            headers["Authorization"] = "Bearer " + self.auth_id
         try:
             resp = self._make_session().get(
                 API_BASE_URL + url,
                 params=params,
                 proxies=proxies,
                 impersonate=IMPERSONATE_TARGET,
-                headers={
-                    "Authorization": "Bearer " + self.auth_id,
-                    "User-Agent": USER_AGENT,
-                },
+                headers=headers,
             )
         except curl_cffi.curl.CurlError as e:
             logger.error(f"Curl error: {e}")
@@ -158,8 +162,13 @@ class Api:
 
         return r
 
-    def _get_paginated(self, url: str, params: dict = None, resume: str = None) -> Any:
-        next_link = API_BASE_URL + url
+    def _get_paginated(
+        self, url: str, params: dict | None = None, resume: str | None = None
+    ) -> Any:
+        next_link: str | None = API_BASE_URL + url
+        headers = {"User-Agent": USER_AGENT}
+        if self.auth_id is not None:
+            headers["Authorization"] = "Bearer " + self.auth_id
 
         if resume is not None:
             next_link += f"?max_id={resume}"
@@ -170,10 +179,7 @@ class Api:
                 params=params,
                 proxies=proxies,
                 impersonate=IMPERSONATE_TARGET,
-                headers={
-                    "Authorization": "Bearer " + self.auth_id,
-                    "User-Agent": USER_AGENT,
-                },
+                headers=headers,
             )
             link_header = resp.headers.get("Link", "")
             next_link = None
@@ -188,7 +194,7 @@ class Api:
             # Will also sleep
             self._check_ratelimit(resp)
 
-    def user_likes(self, post: str, include_all: bool = False, top_num: int = 40) -> bool | Any:
+    def user_likes(self, post: str, include_all: bool = False, top_num: int = 40) -> Iterator[dict]:
         """Return the top_num most recent (or all) users who liked the post."""
         self.__check_login()
         top_num = int(top_num)
@@ -211,7 +217,7 @@ class Api:
         include_all: bool = False,
         only_first: bool = False,
         top_num: int = 40,
-    ):
+    ) -> Iterator[dict]:
         """Return the top_num oldest (or all) replies to a post."""
         self.__check_login()
         top_num = int(top_num)
@@ -232,7 +238,7 @@ class Api:
                     if not include_all and n_output >= top_num:
                         return
 
-    def lookup(self, user_handle: str = None) -> dict | None:
+    def lookup(self, user_handle: str | None = None) -> dict | None:
         """Lookup a user's information."""
 
         self.__check_login()
@@ -241,18 +247,16 @@ class Api:
 
     def search(
         self,
-        searchtype: str = None,
-        query: str = None,
+        searchtype: str | None = None,
+        query: str | None = None,
         limit: int = 40,
-        resolve: bool = 4,
+        resolve: bool = True,
         offset: int = 0,
         min_id: str = "0",
-        max_id: str = None,
-        start_date: (
-            str | datetime
-        ) = None,  # intended use is dates i.e "2026-01-01", supports datetime
-        end_date: str | datetime = None,
-    ) -> dict | None:
+        max_id: str | None = None,
+        start_date: str | datetime | None = None,
+        end_date: str | datetime | None = None,
+    ) -> Iterator[dict]:
         """Search users, statuses or hashtags."""
 
         self.__check_login()
@@ -297,9 +301,9 @@ class Api:
 
     def hashtag(
         self,
-        tag: str = None,
+        tag: str | None = None,
         limit: int = 100,
-    ) -> dict | None:
+    ) -> Iterator[list[dict]]:
         """Collect posts with a specific hashtag."""
 
         self.__check_login()
@@ -309,7 +313,7 @@ class Api:
             tag = tag[1:]
 
         num_results = 0
-        params = dict()
+        params: dict = dict()
         while num_results < limit:
             logger.info(f"Collecting posts with hashtag: {tag}, max_id: {params.get('max_id')}")
             resp = self._get(
@@ -337,11 +341,11 @@ class Api:
         self.__check_login()
         return self._get(f"/v1/truth/trending/truths?limit={limit}")
 
-    def group_posts(self, group_id: str, limit=20):
+    def group_posts(self, group_id: str, limit: int = 20) -> list[dict]:
         self.__check_login()
-        timeline = []
+        timeline: list[dict] = []
         posts = self._get(f"/v1/timelines/group/{group_id}?limit={limit}")
-        while posts is not None:
+        while posts:
             timeline += posts
             limit = limit - len(posts)
             if limit <= 0:
@@ -356,7 +360,7 @@ class Api:
         self.__check_login()
         return self._get("/v1/trends")
 
-    def suggested(self, maximum: int = 50) -> dict:
+    def suggested(self, maximum: int = 50) -> Any:
         """Return a list of suggested users to follow."""
         self.__check_login()
         return self._get(f"/v2/suggestions?limit={maximum}")
@@ -374,12 +378,12 @@ class Api:
         self.__check_login()
         return self._get("/v1/groups/tags")
 
-    def suggested_groups(self, maximum: int = 50) -> dict:
+    def suggested_groups(self, maximum: int = 50) -> Any:
         """Return a list of suggested groups to follow."""
         self.__check_login()
         return self._get(f"/v1/truth/suggestions/groups?limit={maximum}")
 
-    def ads(self, device: str = "desktop") -> dict:
+    def ads(self, device: str = "desktop") -> Any:
         """Return a list of ads from Rumble's Ad Platform via Truth Social API."""
 
         self.__check_login()
@@ -387,13 +391,16 @@ class Api:
 
     def user_followers(
         self,
-        user_handle: str = None,
-        user_id: str = None,
+        user_handle: str | None = None,
+        user_id: str | None = None,
         maximum: int = 1000,
-        resume: str = None,
+        resume: str | None = None,
     ) -> Iterator[dict]:
         assert user_handle is not None or user_id is not None
-        user_id = user_id if user_id is not None else self.lookup(user_handle)["id"]
+        if user_id is None:
+            user = self.lookup(user_handle)
+            assert user is not None, "lookup returned no user"
+            user_id = user["id"]
 
         n_output = 0
         for followers_batch in self._get_paginated(
@@ -407,13 +414,16 @@ class Api:
 
     def user_following(
         self,
-        user_handle: str = None,
-        user_id: str = None,
+        user_handle: str | None = None,
+        user_id: str | None = None,
         maximum: int = 1000,
-        resume: str = None,
+        resume: str | None = None,
     ) -> Iterator[dict]:
         assert user_handle is not None or user_id is not None
-        user_id = user_id if user_id is not None else self.lookup(user_handle)["id"]
+        if user_id is None:
+            user = self.lookup(user_handle)
+            assert user is not None, "lookup returned no user"
+            user_id = user["id"]
 
         n_output = 0
         for followers_batch in self._get_paginated(
@@ -427,25 +437,37 @@ class Api:
 
     def pull_statuses(
         self,
-        username: str,
-        replies=False,
-        verbose=False,
-        created_after: datetime = None,
-        since_id=None,
-        pinned=False,
-    ) -> list[dict]:
+        username: str | None = None,
+        replies: bool = False,
+        verbose: bool = False,
+        created_after: datetime | None = None,
+        since_id: str | int | None = None,
+        pinned: bool = False,
+        *,
+        user_id: str | None = None,
+    ) -> Iterator[dict]:
         """Pull the given user's statuses.
+
+        Pass either `username` or `user_id`. Supplying `user_id` directly skips
+        an extra `lookup` call, which matters when `lookup` is not available
+        (e.g. in public mode, if Truth Social gates that endpoint).
 
         Params:
             created_after : timezone aware datetime object
             since_id : number or string
 
-        Returns a list of posts in reverse chronological order,
-            or an empty list if not found.
+        Yields posts in reverse chronological order.
         """
+        self.__check_login()
+        if user_id is None:
+            if username is None:
+                raise ValueError("pull_statuses requires either `username` or `user_id`.")
+            user = self.lookup(username)
+            if user is None:
+                return
+            user_id = user["id"]
 
-        params = {}
-        user_id = self.lookup(username)["id"]
+        params: dict = {}
         page_counter = 0
         keep_going = True
         while keep_going:
@@ -469,20 +491,21 @@ class Api:
                 logger.error(f"Misc. error while pulling statuses for {user_id}: {e}")
                 break
 
-            if "error" in result:
+            if result is None:
+                break
+            if isinstance(result, dict) and "error" in result:
                 logger.error(
                     f"API returned an error while pulling user #{user_id}'s statuses: {result}"
                 )
                 break
-
+            if not isinstance(result, list):
+                logger.error(f"Result is not a list (it's a {type(result)}): {result}")
+                break
             if len(result) == 0:
                 break
 
-            if not isinstance(result, list):
-                logger.error(f"Result is not a list (it's a {type(result)}): {result}")
-
-            posts = sorted(
-                result, key=lambda k: k["id"], reverse=True
+            posts: list[dict] = sorted(
+                cast(list[dict], result), key=lambda k: k["id"], reverse=True
             )  # reverse chronological order (recent first, older last)
             params["max_id"] = posts[-1][
                 "id"
@@ -500,7 +523,7 @@ class Api:
                 # only keep posts created after the specified date
                 # exclude posts created before the specified date
                 # since the page is listed in reverse chronology, we don't need any remaining posts on this page either
-                post_at = date_parse.parse(post["created_at"]).replace(tzinfo=timezone.utc)
+                post_at = date_parse.parse(post["created_at"]).replace(tzinfo=UTC)
                 if (created_after and post_at <= created_after) or (
                     since_id and int(post["id"]) <= int(since_id)
                 ):

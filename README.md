@@ -45,12 +45,31 @@ If you encounter login issues, you can instead extract your login token from the
 
 You may also set these variables in a `.env` file in the directory from which you are running Truthbrush.
 
+### Public mode (no credentials)
+
+Some Truth Social endpoints are readable without authentication. To run Truthbrush against only those endpoints, pass `--no-auth` on the CLI or construct the client with `require_auth=False`:
+
+```sh
+truthbrush --no-auth trends
+truthbrush --no-auth user realDonaldTrump
+```
+
+```py
+from truthbrush import Api
+
+api = Api(require_auth=False)
+print(api.trending())
+```
+
+Endpoints that require authentication will return an API error (typically HTTP 401) when called in public mode. Which endpoints are publicly accessible is determined by Truth Social and may change without notice.
+
 ## CLI Usage
 
 ```text
 Usage: truthbrush [OPTIONS] COMMAND [ARGS]...
 
 Options:
+  --no-auth  Run without authentication. Only public endpoints will succeed.
   --help     Show this message and exit.
 
 
@@ -164,8 +183,10 @@ pytest
 pytest --log-cli-level=DEBUG -s
 ```
 
-Please format your code with `black`:
+Please format and lint your code with `ruff`, and run `ty` to check types:
 
 ```sh
-black .
+ruff format .
+ruff check .
+ty check truthbrush/
 ```
