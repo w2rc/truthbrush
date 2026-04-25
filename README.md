@@ -96,10 +96,22 @@ Commands:
 truthbrush search --searchtype [accounts|statuses|hashtags|groups] QUERY
 ```
 
+Restrict status results to a date window:
+
+```bash
+truthbrush search --searchtype statuses --start-date 2024-11-01 --end-date 2024-11-07 QUERY
+```
+
 **Pull all statuses (posts) from a user**
 
 ```bash
 truthbrush statuses HANDLE
+```
+
+Restrict to a date window (UTC assumed when no timezone is given):
+
+```bash
+truthbrush statuses --created-after 2024-11-01 --created-before 2024-11-07 HANDLE
 ```
 
 **Pull "People to Follow" (suggested) users**
