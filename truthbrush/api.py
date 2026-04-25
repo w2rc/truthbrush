@@ -459,6 +459,7 @@ class Api:
         created_after: datetime | None = None,
         since_id: str | int | None = None,
         pinned: bool = False,
+        created_before: datetime | None = None,
         *,
         user_id: str | None = None,
     ) -> Iterator[dict]:
@@ -469,8 +470,11 @@ class Api:
         (e.g. in public mode, if Truth Social gates that endpoint).
 
         Params:
-            created_after : timezone aware datetime object
-            since_id : number or string
+            created_after  : timezone aware datetime object (lower bound, exclusive)
+            created_before : timezone aware datetime object (upper bound). The time
+                             component is rounded up to end-of-day UTC, so passing
+                             `2024-11-07T15:30:00Z` widens to `2024-11-07T23:59:59.999999Z`.
+            since_id       : number or string
 
         Yields posts in reverse chronological order.
         """
@@ -484,6 +488,12 @@ class Api:
             user_id = user["id"]
 
         params: dict = {}
+        if created_before is not None:
+            # Mastodon snowflake ids encode the timestamp in the high bits, so a
+            # date upper bound translates directly to a `max_id` filter — the
+            # server walks back from that point instead of us fetching newer
+            # posts only to discard them in the loop below.
+            params["max_id"] = str(date_to_bound(created_before, "end"))
         page_counter = 0
         keep_going = True
         while keep_going:
