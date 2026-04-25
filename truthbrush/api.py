@@ -120,9 +120,7 @@ class Api:
             and self.ratelimit_reset is not None
         ):  # We do 50 to be safe; their tracking is a bit stochastic... it can jump down quickly
             now = datetime.now(UTC)
-            time_to_sleep = (
-                self.ratelimit_reset.replace(tzinfo=UTC) - now
-            ).total_seconds()
+            time_to_sleep = (self.ratelimit_reset.replace(tzinfo=UTC) - now).total_seconds()
             logger.warning(f"Approaching rate limit; sleeping for {time_to_sleep} seconds...")
             if time_to_sleep > 0:
                 sleep(time_to_sleep)
@@ -275,8 +273,13 @@ class Api:
         if max_id is not None:
             assert min_id < max_id, "min_id must be less than max_id"
 
-        PAGE_SIZE = 40
+        # Truth Social's /v2/search caps each page at ~20 regardless of `limit`,
+        # and pagination state is not shared across backend nodes — so the same
+        # offset can return data on one call and an empty page on the next.
+        PAGE_SIZE = 20
+        MAX_EMPTY_RETRIES = 1
         total_yielded = 0
+        empty_streak = 0
         while total_yielded < limit:
             fetch_size = min(PAGE_SIZE, limit - total_yielded)
             params = dict(
@@ -292,12 +295,25 @@ class Api:
 
             resp = self._get("/v2/search", params=params)
 
-            if not resp or all(value == [] for value in resp.values()):
+            if not resp:
                 break
 
+            page_count = len(resp.get(searchtype) or [])
+
+            if page_count == 0:
+                empty_streak += 1
+                if empty_streak > MAX_EMPTY_RETRIES:
+                    break
+                # Advance by PAGE_SIZE (not page_count, which is 0) so the
+                # retry probes a different offset rather than re-polling.
+                offset += PAGE_SIZE
+                sleep(1)
+                continue
+            empty_streak = 0
+
             yield resp
-            total_yielded += sum(len(v) for v in resp.values() if isinstance(v, list))
-            offset += PAGE_SIZE
+            total_yielded += page_count
+            offset += page_count
 
     def hashtag(
         self,
