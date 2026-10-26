@@ -11,17 +11,17 @@ truthbrush = "truthbrush.cli:cli"
 
 [tool.poetry.dependencies]
 python = "^3.14"
-click = ">=8.3.0"
+click = ">=8.5.0"
 loguru = ">=0.7.3"
-python-dotenv = ">=1.2.0"
+python-dotenv = ">=1.2.4"
 
-python-dateutil = ">=2.9.0"
-curl_cffi = ">=0.15.0"
+python-dateutil = ">=3.0.0"
+curl_cffi = ">=0.17.0"
 
 [tool.poetry.group.dev.dependencies]
-pytest = ">=9.0.3"
-ruff = ">=0.15.0"
-ty = ">=0.0.31"
+pytest = ">=9.1.1"
+ruff = ">=0.17.2"
+ty = ">=0.0.92"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
