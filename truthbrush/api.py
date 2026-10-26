@@ -8,6 +8,7 @@ from typing import Any, Literal, cast
 
 import curl_cffi
 from curl_cffi import requests
+from curl_cffi.requests import ProxySpec
 from dateutil import parser as date_parse
 from dotenv import load_dotenv
 from loguru import logger
@@ -28,7 +29,11 @@ IMPERSONATE_TARGET: str = "chrome146"
 CLIENT_ID = "9X1Fdd-pxNsAgEDNi_SfhJWi8T-vLuV2WVzKIbkTCw4"
 CLIENT_SECRET = "ozF8jzI4968oTKFkEnsBC-UbLPCdrSv0MkXGQu2o_-M"
 
-proxies = {"http": os.getenv("http_proxy"), "https": os.getenv("https_proxy")}
+proxies: ProxySpec = {}
+if http_proxy := os.getenv("http_proxy"):
+    proxies["http"] = http_proxy
+if https_proxy := os.getenv("https_proxy"):
+    proxies["https"] = https_proxy
 
 TRUTHSOCIAL_USERNAME = os.getenv("TRUTHSOCIAL_USERNAME")
 TRUTHSOCIAL_PASSWORD = os.getenv("TRUTHSOCIAL_PASSWORD")
