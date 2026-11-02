@@ -29,7 +29,7 @@ pip install truthbrush
 
 From git:
 
-* To install it, run `pip install git+https://github.com/stanfordio/truthbrush.git`
+* To install it, run `pip install git+https://github.com/w2rc/truthbrush.git`
 
 From source:
 
